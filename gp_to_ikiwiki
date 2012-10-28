@@ -36,7 +36,7 @@ import filecmp
 
 def authorize_self(client_id='None', client_secret='None'):
   if client_id is None or client_secret is None:
-    raise Exception('Please register at the API Console at: https://code.google.com/apis/console.  See README.txt for details!')
+    raise Exception('Please register at the API Console at: https://code.google.com/apis/console.  See gp_to_ikiwiki.txt for details!')
 
   flow = OAuth2WebServerFlow(
       client_id=client_id,

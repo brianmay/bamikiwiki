@@ -48,4 +48,4 @@ properties that you retrieved from the API Console:
 
 ## Running the Sample ##
 
-% python plus_cli.py
+% ./gp_to_ikiwiki
