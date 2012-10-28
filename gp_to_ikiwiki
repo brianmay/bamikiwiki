@@ -190,12 +190,12 @@ def process_item(item, force):
       f.write("# %s\n" % title)
 
       if item['verb']=="share":
-          f.write("\n[%s](%s) shared this [%s](%s) on Google+ written by [%s](%s).\n" % (
+          f.write("\n[%s](%s) shared [this %s](%s) on Google+ written by [%s](%s).\n" % (
                 item['actor']['displayName'], item['actor']['url'],
                 item['object']['objectType'], item['object']['url'],
                 item['object']['actor']['displayName'], item['object']['actor']['url']))
       elif item['verb']=="post":
-          f.write("\n[%s](%s) posted this [%s](%s) on Google+.\n" % (
+          f.write("\n[%s](%s) posted [this %s](%s) on Google+.\n" % (
                 item['actor']['displayName'], item['actor']['url'],
                 item['object']['objectType'], item['object']['url']))
 
