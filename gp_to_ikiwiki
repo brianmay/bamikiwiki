@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 # Copyright (C) 2011 Google Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-__author__ = 'Wolff Dobson'
+__author__ = 'Brian May'
 
 from oauth2client.client import OAuth2WebServerFlow
 from oauth2client.tools import run
@@ -188,14 +190,14 @@ def process_item(item, force):
       f.write("# %s\n" % title)
 
       if item['verb']=="share":
-          f.write("\n[%s](%s) shared this %s on Google+ written by [%s](%s).\n" % (
+          f.write("\n[%s](%s) shared this [%s](%s) on Google+ written by [%s](%s).\n" % (
                 item['actor']['displayName'], item['actor']['url'],
-                item['object']['objectType'],
+                item['object']['objectType'], item['object']['url'],
                 item['object']['actor']['displayName'], item['object']['actor']['url']))
       elif item['verb']=="post":
-          f.write("\n[%s](%s) posted this %s on Google+.\n" % (
+          f.write("\n[%s](%s) posted this [%s](%s) on Google+.\n" % (
                 item['actor']['displayName'], item['actor']['url'],
-                item['object']['objectType']))
+                item['object']['objectType'], item['object']['url']))
 
       if item['object']['content'] != "":
           for line in item['object']['content'].split("\n"):
@@ -233,7 +235,7 @@ def process_item(item, force):
                 f.write("> [%s](%s)\n" % (a['objectType'], a['url']))
             sep = "> \n"
 
-      f.write("\n[source](%s) <!-- %s -->\n" % (item['object']['url'], item['id']))
+      f.write("\n<!-- %s -->\n" % item['id'])
       f.write("[[!tag %s]]\n" % " ".join([ "categories/%s" % c for c in categories ]))
       f.close()
 
