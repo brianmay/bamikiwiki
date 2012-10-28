@@ -1,0 +1,299 @@
+# Copyright (C) 2011 Google Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+__author__ = 'Wolff Dobson'
+
+from oauth2client.client import OAuth2WebServerFlow
+from oauth2client.tools import run
+from oauth2client.file import Storage
+
+import apiclient.discovery
+import httplib2
+import pprint
+import os.path
+import settings
+import time
+import urllib
+
+import sys
+import os
+import gdbm
+import codecs
+import datetime
+import pytz
+import filecmp
+
+def authorize_self(client_id='None', client_secret='None'):
+  if client_id is None or client_secret is None:
+    raise Exception('Please register at the API Console at: https://code.google.com/apis/console.  See README.txt for details!')
+
+  flow = OAuth2WebServerFlow(
+      client_id=client_id,
+      client_secret=client_secret,
+      scope='https://www.googleapis.com/auth/plus.me',
+      user_agent='google-api-client-python-plus-cmdline/1.0',
+      xoauth_displayname='Google Plus Client Example App'
+      )
+
+  #Remove this file if you want to do the OAuth2 dance again!
+  credentials_file = 'plus_auth.dat'
+
+  storage = Storage(credentials_file)
+  if os.path.exists(credentials_file):
+    credentials = storage.get()
+  else:
+    credentials = run(flow, storage)
+
+  return credentials
+
+def build_service(credentials, http, api_key=None):
+  if ( credentials != None ):
+    http = credentials.authorize(http)
+  service = apiclient.discovery.build('plus', 'v1', http=http, developerKey=api_key)
+
+  return service
+
+
+num = 0
+base = "/home/brian/tree/web/brian/diary"
+cat_base = os.path.join(base, "categories")
+dtitle = gdbm.open("id2title.db","c")
+dcategories = gdbm.open("id2categories.db","c")
+
+def process_item(item, force):
+      global num, base, cat_base, dtitle, dcategories
+      print "\n-------"
+      num += 1
+      print num
+      print "id:", item['id']
+      print "actor:", item['actor']
+      print "verb:", item['verb']
+      print "title:", item['title']
+      print "published:", item['published']
+      if 'actor' in item['object']:
+          print "actor:", item['object']['actor']
+      print "type:", item['object']['objectType']
+      if 'attachments' in item['object']:
+          for a in item['object']['attachments']:
+              print "attachment:", a
+      print "url:", item['object']['url']
+      print "content:", item['object']['content']
+#      print '  activity\t', item['object']['content'][:40], item['id']
+
+      dt,_,_ = item['published'].rpartition(".")
+      dt = datetime.datetime.strptime(dt, "%Y-%m-%dT%H:%M:%S")
+
+      id = str(item['id'])
+
+      if id in dtitle:
+          title = dtitle[id]
+          name = title
+          for char in [ "'", "#", "[", "]", '"', '?', '.', ',', ]:
+            name = name.replace(char, '')
+          name = "%s/%s.mdwn" % (dt.strftime("%Y"), name.replace(" ","_"))
+          name = os.path.join(base, name)
+          old_name = name
+      else:
+          title = None
+          old_name = None
+
+      if id in dcategories:
+        categories = dcategories[id]
+        if categories == "":
+            categories = []
+        else:
+            categories = categories.split(" ")
+      else:
+        categories = []
+
+      if title is None or force:
+        if title is None:
+            title = item['title'] or None
+        if title is None:
+            title = item['object']['attachments'][0]['displayName'] or None
+        new_title = ""
+        while new_title is None or new_title == "":
+            sys.stdout.write("\n")
+            if title is None:
+                sys.stdout.write("Title? ")
+            else:
+                sys.stdout.write("Title[%s]? "%title)
+            new_title = sys.stdin.readline().strip()
+            if new_title == "":
+                new_title = title
+        title = new_title
+        name = title
+        for char in [ "'", "#", "[", "]", '"', '?', '.', ',', ]:
+          name = name.replace(char, '')
+        name = "%s/%s.mdwn" % (dt.strftime("%Y"), name.replace(" ","_"))
+        name = os.path.join(base, name)
+
+      invalid=False
+      for c in categories:
+            tmp_name = "%s.mdwn" % c
+            tmp_name = os.path.join(cat_base, tmp_name)
+            if not os.path.exists(tmp_name):
+                sys.stdout.write("Invalid category %s, no file %s\n" % (c, tmp_name))
+                invalid = True
+
+      if len(categories)==0 or force or invalid:
+        done = False
+        new_categories = []
+        while len(new_categories)==0 or not done:
+            done = True
+            sys.stdout.write("\n")
+            if len(categories)==0:
+                sys.stdout.write("Categories? ")
+            else:
+                sys.stdout.write("Categories%r? " % categories)
+            new_categories = sys.stdin.readline().strip()
+            if new_categories == "":
+                new_categories = categories
+            else:
+                new_categories = new_categories.split(" ")
+            for c in new_categories:
+                tmp_name = "%s.mdwn" % c
+                tmp_name = os.path.join(cat_base, tmp_name)
+                if not os.path.exists(tmp_name):
+                    sys.stdout.write("Invalid category %s, no file %s\n" % (c, tmp_name))
+                    done = False
+        categories = new_categories
+
+      if old_name is not None and old_name != name:
+          print "removing name:", old_name
+          print "new name:", name
+          os.remove(old_name)
+
+      dtitle[id] = title
+      dcategories[id] = " ".join(categories)
+      print "title:", title
+      print "name:", name
+      print "categories:", categories
+
+      tmpfile = "tempfile.mdwn"
+      f = codecs.open(tmpfile, "w", "utf-8")
+      f.write('[[!meta title="%s"]]\n' % title)
+      f.write('[[!meta date="%s"]]\n' % dt.strftime("%Y-%m-%dT%H:%M:%S GMT"))
+      f.write("# %s\n" % title)
+
+      if item['verb']=="share":
+          f.write("\n[%s](%s) shared this %s on Google+ written by [%s](%s).\n" % (
+                item['actor']['displayName'], item['actor']['url'],
+                item['object']['objectType'],
+                item['object']['actor']['displayName'], item['object']['actor']['url']))
+      elif item['verb']=="post":
+          f.write("\n[%s](%s) posted this %s on Google+.\n" % (
+                item['actor']['displayName'], item['actor']['url'],
+                item['object']['objectType']))
+
+      if item['object']['content'] != "":
+          for line in item['object']['content'].split("\n"):
+                f.write("\n%s\n" % line)
+
+      if 'attachments' in item['object']:
+        for a in item['object']['attachments']:
+            sep = "\n"
+            if 'content' in a:
+                for line in a['content'].split("\n"):
+                    f.write(sep)
+                    f.write("> %s\n" % line)
+                    sep = "> \n"
+            if 'fullImage' in a:
+                if "doubleclick" not in a['fullImage']['url']:
+                    f.write(sep)
+                    f.write("> <img src='%s' alt='fullImage' />\n" % a['fullImage']['url'])
+                    sep = "> \n"
+            elif 'image' in a:
+                if "doubleclick" not in a['image']['url']:
+                    f.write(sep)
+                    f.write("> <img src='%s' alt='image' />\n" % a['image']['url'])
+                    sep = "> \n"
+            if 'thumbnails' in a:
+                f.write(sep)
+                f.write(">")
+                for i in a['thumbnails']:
+                    f.write(" [<img src='%s' alt='thumbnail' />](%s)" % (i['image']['url'], i['url']))
+                f.write("\n")
+                sep = "> \n"
+            f.write(sep)
+            if a['objectType'] == "article":
+                f.write("> [full %s](%s)\n" % (a['objectType'], a['url']))
+            else:
+                f.write("> [%s](%s)\n" % (a['objectType'], a['url']))
+            sep = "> \n"
+
+      f.write("\n[source](%s) <!-- %s -->\n" % (item['object']['url'], item['id']))
+      f.write("[[!tag %s]]\n" % " ".join([ "categories/%s" % c for c in categories ]))
+      f.close()
+
+      if os.path.exists(name) and filecmp.cmp(tmpfile, name, shallow=False):
+        print "deleting tmp file"
+        os.remove(tmpfile)
+      else:
+        print "renaming tmp file"
+        os.rename(tmpfile, name)
+      print "-------\n"
+
+def main():
+  http = httplib2.Http()
+  credentials = authorize_self(settings.CLIENT_ID,settings.CLIENT_SECRET)
+  service = build_service(credentials,http)
+
+  person = service.people().get(userId='me').execute(http)
+
+  print "Got your ID: " + person['displayName']
+
+  # Now, we can continue on unauthorized
+  # I could continue using my authenticated service, of course
+  # but for example we'll use a second unauth'd one
+  httpUnauth = httplib2.Http()
+  serviceUnauth = build_service(None, httpUnauth, settings.API_KEY)
+
+  activities_doc = serviceUnauth.activities().list(userId=person['id'],collection='public').execute(httpUnauth)
+
+  activities = []
+  npt = None
+
+  if 'items' in activities_doc:
+    activities = activities_doc[ 'items' ]
+    print "Retrieved %d activities" % len(activities_doc['items'])
+
+    for item in activities:
+        force = item['id'] in sys.argv
+        process_item(item, force)
+
+  if 'nextPageToken' in activities_doc:
+    npt = activities_doc['nextPageToken']
+  else:
+    npt = None
+
+  while npt is not None:
+    activities_doc = serviceUnauth.activities().list(userId=person['id'],collection='public',pageToken=npt).execute(httpUnauth)
+
+    if 'items' in activities_doc:
+      activities = activities_doc['items']
+      print "Retrieved %d more activities" % len(activities_doc['items'])
+      for item in activities:
+        force = item['id'] in sys.argv
+        process_item(item, force)
+
+    if 'nextPageToken' in activities_doc:
+        npt = activities_doc['nextPageToken']
+    else:
+        npt = None
+
+  print '\n\nSUCCESS: Everything worked'
+
+if __name__=='__main__':
+  main()
