@@ -100,13 +100,10 @@ def process_status(status):
         all_status[year] = {}
 
     if week not in all_status[year]:
-        all_status[year][week] = []
+        all_status[year][week] = {}
 
-    all_status[year][week].append({
-        'text': text,
-    })
+    all_status[year][week][status.id] = text
 
-    print status.__dict__
     if new_last_id is None or new_last_id >= status.id:
         new_last_id = status.id
 
@@ -134,8 +131,8 @@ for year in all_status:
         f.write("# %s\n" % title)
         f.write("\n")
 
-        for data in all_status[year][week]:
-            f.write(data['text'])
+        for this_id in sorted(all_status[year][week]):
+            f.write(all_status[year][week][this_id])
 
         now = datetime.date.today()
 
