@@ -1,0 +1,158 @@
+#!/usr/bin/python
+
+import ConfigParser
+import sys
+import tweepy
+import datetime
+import codecs
+import os
+import filecmp
+import pytz
+
+config = ConfigParser.ConfigParser()
+config.read('config.cfg')
+
+consumer_token = config.get('twitter', 'consumer_token')
+consumer_secret = config.get('twitter', 'consumer_secret')
+auth = tweepy.OAuthHandler(consumer_token, consumer_secret)
+
+state = ConfigParser.ConfigParser()
+state.read('state.cfg')
+if not state.has_option('twitter', 'key') or not state.has_option('twitter', 'secret'):
+    try:
+        redirect_url = auth.get_authorization_url()
+    except tweepy.TweepError:
+        sys.stderr.write('Error! Failed to get request token.\n')
+        sys.exit(1)
+
+    sys.stdout.write("goto %s\n" % redirect_url)
+
+    verifier = raw_input('Verifier:')
+
+    try:
+        auth.get_access_token(verifier)
+    except tweepy.TweepError:
+        sys.stderr.write('Error! Failed to get access token.\n')
+        sys.exit(1)
+
+    api = tweepy.API(auth)
+
+    state.add_section("twitter")
+    state.set('twitter', 'key', auth.access_token.key)
+    state.set('twitter', 'secret', auth.access_token.secret)
+    with open('state.cfg', 'wb') as configfile:
+        state.write(configfile)
+else:
+    key = state.get('twitter', 'key')
+    secret = state.get('twitter', 'secret')
+    auth.set_access_token(key, secret)
+    api = tweepy.API(auth)
+    key = None
+    secret = None
+
+base = config.get('main', 'base')
+timezone = pytz.timezone(config.get('main', 'timezone'))
+
+if state.has_option('twitter', 'last_id'):
+    last_id = state.get('twitter', 'last_id')
+else:
+    last_id = None
+
+all_status = {}
+new_last_id = None
+
+def tofirstdayinisoweek(year, week):
+    ret = datetime.datetime.strptime('%04d-%02d-1' % (year, week), '%Y-%W-%w')
+    if datetime.date(year, 1, 4).isoweekday() > 4:
+        ret -= timedelta(days=7)
+    return ret
+
+def process_status(status):
+    global lastweek, nextweek, all_status, new_last_id
+    print status.created_at, status.text
+
+
+    if getattr(status, 'retweeted_status', None) is not None:
+        url = "https://twitter.com/%s/status/%s" % (status.retweeted_status.user.screen_name, status.id_str)
+        author_url = "https://twitter.com/%s" % (status.retweeted_status.user.screen_name, )
+        text = '<img src="%s" alt="" /> %s<br/>\n[%s](%s) by [%s](%s), retweeted by [%s](%s) at %s\n\n' % (
+                status.retweeted_status.author.profile_image_url,
+                status.retweeted_status.text,
+                status.retweeted_status.created_at.replace(tzinfo=pytz.utc).astimezone(timezone), url,
+                status.retweeted_status.author.screen_name, author_url,
+                status.author.screen_name, author_url,
+                status.created_at.replace(tzinfo=pytz.utc).astimezone(timezone),
+        )
+    else:
+        url = "https://twitter.com/%s/status/%s" % (status.author.screen_name, status.id_str)
+        author_url = "https://twitter.com/%s" % (status.author.screen_name, )
+        text = '<img src="%s" alt="" /> %s<br/>\n[%s](%s) by [%s](%s)\n\n' % (
+                status.author.profile_image_url,
+                status.text,
+                status.created_at.replace(tzinfo=pytz.utc).astimezone(timezone),
+                url,
+                status.author.screen_name, author_url
+        )
+
+    year, week, day = status.created_at.isocalendar()
+
+    if year not in all_status:
+        all_status[year] = {}
+
+    if week not in all_status[year]:
+        all_status[year][week] = []
+
+    all_status[year][week].append({
+        'text': text,
+    })
+
+    print status.__dict__
+    if new_last_id is None or new_last_id >= status.id:
+        new_last_id = status.id
+
+
+for status in tweepy.Cursor(api.user_timeline, since_id=last_id).items():
+    process_status(status)
+
+for status in tweepy.Cursor(api.retweeted_by_me, since_id=last_id).items(limit=5):
+    process_status(status)
+
+for year in all_status:
+    for week in all_status[year]:
+        lastweek = tofirstdayinisoweek(year, week)
+        nextweek = lastweek + datetime.timedelta(days=7)
+        print week
+        print lastweek
+        print nextweek
+
+        tmpfile = "tempfile.mdwn"
+        f = codecs.open(tmpfile, "w", "utf-8")
+        title = "Twitter updates week ending %s" % nextweek.date()
+
+        f.write('[[!meta title="%s"]]\n' % title)
+        f.write('[[!meta date="%s"]]\n' % nextweek.strftime("%Y-%m-%dT%H:%M:%S GMT"))
+        f.write("# %s\n" % title)
+        f.write("\n")
+
+        for data in all_status[year][week]:
+            f.write(data['text'])
+
+        now = datetime.date.today()
+
+        f.write("\n")
+        f.write("[[!tag %s]]\n" % "categories/tweets")
+        f.close()
+
+        name = "%s/tweets_%s.mdwn" % (nextweek.strftime("%Y"), nextweek.strftime("%Y-%m-%d"))
+        name = os.path.join(base, name)
+
+        print name
+        if os.path.exists(name) and filecmp.cmp(tmpfile, name, shallow=False):
+            os.remove(tmpfile)
+        else:
+            os.rename(tmpfile, name)
+
+#state.set('twitter', 'last_id', new_last_id)
+#with open('state.cfg', 'wb') as configfile:
+#    state.write(configfile)
+

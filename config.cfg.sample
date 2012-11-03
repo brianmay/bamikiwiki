@@ -1,0 +1,12 @@
+[main]
+base = /home/brian/tree/web/brian/diary
+timezone = Australia/Melbourne
+
+[gp]
+CLIENT_ID =
+CLIENT_SECRET =
+API_KEY =
+
+[twitter]
+consumer_token =
+consumer_secret =

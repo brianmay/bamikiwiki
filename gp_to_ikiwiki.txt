@@ -39,12 +39,12 @@ Visit https://code.google.com/apis/console/ to register your application.
 error when authenticating, as the CLI will attempt to run a server on
 port 8080, then 8090, etc.]
 
-Edit the settings.py file and enter the values for the following
+Copy config.cfg.sample to config.cfg and enter the values for the following
 properties that you retrieved from the API Console:
 
 - CLIENT_ID
 - CLIENT_SECRET
-- API_KEY 
+- API_KEY
 
 ## Running the Sample ##
 

@@ -24,7 +24,6 @@ import apiclient.discovery
 import httplib2
 import pprint
 import os.path
-import settings
 import time
 import urllib
 
@@ -36,6 +35,7 @@ import datetime
 import pytz
 import filecmp
 import glob
+import ConfigParser
 
 def authorize_self(client_id='None', client_secret='None'):
   if client_id is None or client_secret is None:
@@ -69,7 +69,7 @@ def build_service(credentials, http, api_key=None):
 
 
 num = 0
-base = "/home/brian/tree/web/brian/diary"
+base = config.get('main', 'base')
 cat_base = os.path.join(base, "categories")
 dtitle = gdbm.open("id2title.db","c")
 dcategories = gdbm.open("id2categories.db","c")
@@ -306,8 +306,15 @@ def process_activities(serviceUnauth, httpUnauth, activities):
         process_item(item, comments, force)
 
 def main():
+  config = ConfigParser.ConfigParser()
+  config.read('config.cfg')
+
+  CLIENT_ID = config.get('gp', 'CLIENT_ID')
+  CLIENT_SECRET = config.get('gp', 'CLIENT_SECRET')
+  API_KEY = config.get('gp', 'API_KEY')
+
   http = httplib2.Http()
-  credentials = authorize_self(settings.CLIENT_ID,settings.CLIENT_SECRET)
+  credentials = authorize_self(CLIENT_ID,CLIENT_SECRET)
   service = build_service(credentials,http)
 
   person = service.people().get(userId='me').execute(http)
@@ -318,7 +325,7 @@ def main():
   # I could continue using my authenticated service, of course
   # but for example we'll use a second unauth'd one
   httpUnauth = httplib2.Http()
-  serviceUnauth = build_service(None, httpUnauth, settings.API_KEY)
+  serviceUnauth = build_service(None, httpUnauth, API_KEY)
 
   activities_doc = serviceUnauth.activities().list(userId=person['id'],collection='public').execute(httpUnauth)
 
