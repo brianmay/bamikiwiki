@@ -35,6 +35,7 @@ import codecs
 import datetime
 import pytz
 import filecmp
+import glob
 
 def authorize_self(client_id='None', client_secret='None'):
   if client_id is None or client_secret is None:
@@ -73,7 +74,7 @@ cat_base = os.path.join(base, "categories")
 dtitle = gdbm.open("id2title.db","c")
 dcategories = gdbm.open("id2categories.db","c")
 
-def process_item(item, force):
+def process_item(item, comments, force):
       global num, base, cat_base, dtitle, dcategories
       print "\n-------"
       num += 1
@@ -91,6 +92,7 @@ def process_item(item, force):
               print "attachment:", a
       print "url:", item['object']['url']
       print "content:", item['object']['content']
+      print "replies:", item['object']['replies']
 #      print '  activity\t', item['object']['content'][:40], item['id']
 
       dt,_,_ = item['published'].rpartition(".")
@@ -103,6 +105,8 @@ def process_item(item, force):
           name = title
           for char in [ "'", "#", "[", "]", '"', '?', '.', ',', ]:
             name = name.replace(char, '')
+          dirname = "%s/%s" % (dt.strftime("%Y"), name.replace(" ","_"))
+          dirname = os.path.join(base, dirname)
           name = "%s/%s.mdwn" % (dt.strftime("%Y"), name.replace(" ","_"))
           name = os.path.join(base, name)
           old_name = name
@@ -138,6 +142,8 @@ def process_item(item, force):
         name = title
         for char in [ "'", "#", "[", "]", '"', '?', '.', ',', ]:
           name = name.replace(char, '')
+        dirname = "%s/%s" % (dt.strftime("%Y"), name.replace(" ","_"))
+        dirname = os.path.join(base, dirname)
         name = "%s/%s.mdwn" % (dt.strftime("%Y"), name.replace(" ","_"))
         name = os.path.join(base, name)
 
@@ -237,6 +243,7 @@ def process_item(item, force):
 
       f.write("\n<!-- %s -->\n" % item['id'])
       f.write("[[!tag %s]]\n" % " ".join([ "categories/%s" % c for c in categories ]))
+
       f.close()
 
       if os.path.exists(name) and filecmp.cmp(tmpfile, name, shallow=False):
@@ -246,6 +253,57 @@ def process_item(item, force):
         print "renaming tmp file"
         os.rename(tmpfile, name)
       print "-------\n"
+
+      for comment in comments:
+        tmpfile = "tempfile.mdwn"
+
+        f = codecs.open(tmpfile, "w", "utf-8")
+
+        dt,_,_ = comment['published'].rpartition(".")
+        dt = datetime.datetime.strptime(dt, "%Y-%m-%dT%H:%M:%S")
+
+        f.write('''
+[[!comment  format=mdwn
+claimedauthor="%s"
+url="%s"
+subject="Google+ Comment"
+date="%s"
+content="""
+%s
+"""
+]]
+'''% (comment['actor']['displayName'],
+      comment['actor']['url'],
+      dt.strftime("%Y-%m-%dT%H:%M:%S GMT"),
+      comment['object']['content']))
+
+        existing = glob.glob(os.path.join(dirname, "comment_*_%s._comment"%(comment['id'])))
+        if len(existing) > 1:
+            raise RuntimeError("oops")
+
+        if len(existing) == 1:
+            name = existing[0]
+        else:
+            num = len(glob.glob(os.path.join(dirname, "comment_*._comment")))
+            name = os.path.join(dirname, "comment_%d_%s._comment"%(num,comment['id']))
+
+        print name
+
+        if not os.path.exists(dirname):
+            os.mkdir(dirname)
+
+        if os.path.exists(name) and filecmp.cmp(tmpfile, name, shallow=False):
+            os.remove(tmpfile)
+        else:
+            os.rename(tmpfile, name)
+        
+
+def process_activities(serviceUnauth, httpUnauth, activities):
+    for item in activities:
+        comments_doc = serviceUnauth.comments().list(activityId=item['id']).execute(httpUnauth)
+        comments = comments_doc['items']
+        force = item['id'] in sys.argv
+        process_item(item, comments, force)
 
 def main():
   http = httplib2.Http()
@@ -270,10 +328,8 @@ def main():
   if 'items' in activities_doc:
     activities = activities_doc[ 'items' ]
     print "Retrieved %d activities" % len(activities_doc['items'])
+    process_activities(serviceUnauth, httpUnauth, activities)
 
-    for item in activities:
-        force = item['id'] in sys.argv
-        process_item(item, force)
 
   if 'nextPageToken' in activities_doc:
     npt = activities_doc['nextPageToken']
@@ -286,9 +342,7 @@ def main():
     if 'items' in activities_doc:
       activities = activities_doc['items']
       print "Retrieved %d more activities" % len(activities_doc['items'])
-      for item in activities:
-        force = item['id'] in sys.argv
-        process_item(item, force)
+      process_activities(serviceUnauth, httpUnauth, activities)
 
     if 'nextPageToken' in activities_doc:
         npt = activities_doc['nextPageToken']
