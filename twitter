@@ -53,13 +53,7 @@ else:
 base = config.get('main', 'base')
 timezone = pytz.timezone(config.get('main', 'timezone'))
 
-if state.has_option('twitter', 'last_id'):
-    last_id = state.get('twitter', 'last_id')
-else:
-    last_id = None
-
 all_status = {}
-new_last_id = None
 
 def tofirstdayinisoweek(year, week):
     ret = datetime.datetime.strptime('%04d-%02d-1' % (year, week), '%Y-%W-%w')
@@ -68,31 +62,37 @@ def tofirstdayinisoweek(year, week):
     return ret
 
 def process_status(status):
-    global lastweek, nextweek, all_status, new_last_id
+    global lastweek, nextweek, all_status
     print status.created_at, status.text
 
+    if getattr(status, 'retweeted_status', None) is not None:
+        tweet_status = status.retweeted_status
+    else:
+        tweet_status = status
+
+    author = tweet_status.author
+    text = tweet_status.text
+    created_at = tweet_status.created_at
+
+    author_url = "https://twitter.com/%s" % (author.screen_name, )
+    url = "https://twitter.com/%s/status/%s" % (author.screen_name, status.id_str)
+
+    t = []
+    t.append('<div class="tweet">')
+    t.append('<img src="%s" alt="" />' % author.profile_image_url)
+    t.append('<div class="tweet_text">')
+    t.append('%s <a href="%s">@%s</a><br/>' % (author.name, author_url, author.screen_name))
+    t.append('%s<br/>' % text)
+    t.append('<a href="%s">%s</a>' % (url, created_at.replace(tzinfo=pytz.utc).astimezone(timezone)))
 
     if getattr(status, 'retweeted_status', None) is not None:
-        url = "https://twitter.com/%s/status/%s" % (status.retweeted_status.user.screen_name, status.id_str)
-        author_url = "https://twitter.com/%s" % (status.retweeted_status.user.screen_name, )
-        text = '<img src="%s" alt="" /> %s<br/>\n[%s](%s) by [%s](%s), retweeted by [%s](%s) at %s\n\n' % (
-                status.retweeted_status.author.profile_image_url,
-                status.retweeted_status.text,
-                status.retweeted_status.created_at.replace(tzinfo=pytz.utc).astimezone(timezone), url,
-                status.retweeted_status.author.screen_name, author_url,
-                status.author.screen_name, author_url,
+        t.append(', retweeted by <a href="%s">%s</a> at %s' % (
+                author_url, status.author.screen_name,
                 status.created_at.replace(tzinfo=pytz.utc).astimezone(timezone),
-        )
-    else:
-        url = "https://twitter.com/%s/status/%s" % (status.author.screen_name, status.id_str)
-        author_url = "https://twitter.com/%s" % (status.author.screen_name, )
-        text = '<img src="%s" alt="" /> %s<br/>\n[%s](%s) by [%s](%s)\n\n' % (
-                status.author.profile_image_url,
-                status.text,
-                status.created_at.replace(tzinfo=pytz.utc).astimezone(timezone),
-                url,
-                status.author.screen_name, author_url
-        )
+        ))
+    t.append('</div>')
+    t.append('</div>')
+    t.append('\n\n')
 
     year, week, day = status.created_at.isocalendar()
 
@@ -102,29 +102,63 @@ def process_status(status):
     if week not in all_status[year]:
         all_status[year][week] = {}
 
-    all_status[year][week][status.id] = text
+    all_status[year][week][status.id] = "".join(t)
 
-    if new_last_id is None or new_last_id >= status.id:
-        new_last_id = status.id
+    lastweek = tofirstdayinisoweek(year, week)
+    nextweek = lastweek + datetime.timedelta(days=7)
+
+    if datetime.datetime.now() >= nextweek:
+        return False
+    else:
+        return True
 
 
-for status in tweepy.Cursor(api.user_timeline, since_id=last_id).items():
-    process_status(status)
+# user_timeline
 
-for status in tweepy.Cursor(api.retweeted_by_me, since_id=last_id).items(limit=5):
-    process_status(status)
+if state.has_option('twitter', 'user_timeline_last_id'):
+    user_timeline_last_id = state.get('twitter', 'user_timeline_last_id')
+else:
+    user_timeline_last_id = None
+
+print "\nuser_timeline", user_timeline_last_id
+
+for status in tweepy.Cursor(api.user_timeline, since_id=user_timeline_last_id).items():
+    current_week = process_status(status)
+    print current_week
+    if not current_week:
+        if user_timeline_last_id is None or user_timeline_last_id < status.id:
+            user_timeline_last_id = status.id
+
+print "done:", user_timeline_last_id
+
+
+# retweeted_by_me
+
+if state.has_option('twitter', 'retweeted_by_me_last_id'):
+    retweeted_by_me_last_id = state.get('twitter', 'retweeted_by_me_last_id')
+else:
+    retweeted_by_me_last_id = None
+
+print "\nretweeted_by_me", retweeted_by_me_last_id
+
+for status in tweepy.Cursor(api.retweeted_by_me, since_id=retweeted_by_me_last_id).items():
+    current_week = process_status(status)
+    print current_week
+    if not current_week:
+        if retweeted_by_me_last_id is None or retweeted_by_me_last_id < status.id:
+            retweeted_by_me_last_id = status.id
+
+print "done:", retweeted_by_me_last_id
+
 
 for year in all_status:
     for week in all_status[year]:
         lastweek = tofirstdayinisoweek(year, week)
         nextweek = lastweek + datetime.timedelta(days=7)
-        print week
-        print lastweek
-        print nextweek
 
         tmpfile = "tempfile.mdwn"
         f = codecs.open(tmpfile, "w", "utf-8")
-        title = "Twitter updates week ending %s" % nextweek.date()
+        title = "Twitter updates %s" % lastweek.date()
 
         f.write('[[!meta title="%s"]]\n' % title)
         f.write('[[!meta date="%s"]]\n' % nextweek.strftime("%Y-%m-%dT%H:%M:%S GMT"))
@@ -140,7 +174,7 @@ for year in all_status:
         f.write("[[!tag %s]]\n" % "categories/tweets")
         f.close()
 
-        name = "%s/tweets_%s.mdwn" % (nextweek.strftime("%Y"), nextweek.strftime("%Y-%m-%d"))
+        name = "%s/tweets_%s.mdwn" % (lastweek.strftime("%Y"), lastweek.strftime("%Y-%m-%d"))
         name = os.path.join(base, name)
 
         print name
@@ -149,7 +183,8 @@ for year in all_status:
         else:
             os.rename(tmpfile, name)
 
-#state.set('twitter', 'last_id', new_last_id)
-#with open('state.cfg', 'wb') as configfile:
-#    state.write(configfile)
+state.set('twitter', 'user_timeline_last_id', user_timeline_last_id)
+state.set('twitter', 'retweeted_by_me_last_id', retweeted_by_me_last_id)
+with open('state.cfg', 'wb') as configfile:
+    state.write(configfile)
 
