@@ -52,6 +52,7 @@ else:
 
 base = config.get('main', 'base')
 timezone = pytz.timezone(config.get('main', 'timezone'))
+now = datetime.datetime.utcnow().replace(tzinfo=pytz.utc).astimezone(timezone)
 
 all_status = {}
 
@@ -72,7 +73,7 @@ def process_status(status):
 
     author = tweet_status.author
     text = tweet_status.text
-    created_at = tweet_status.created_at
+    created_at = tweet_status.created_at.replace(tzinfo=pytz.utc).astimezone(timezone)
 
     author_url = "https://twitter.com/%s" % (author.screen_name, )
     url = "https://twitter.com/%s/status/%s" % (author.screen_name, status.id_str)
@@ -83,18 +84,17 @@ def process_status(status):
     t.append('<div class="tweet_text">')
     t.append('%s <a href="%s">@%s</a><br/>' % (author.name, author_url, author.screen_name))
     t.append('%s<br/>' % text)
-    t.append('<a href="%s">%s</a>' % (url, created_at.replace(tzinfo=pytz.utc).astimezone(timezone)))
+    t.append('<a href="%s">%s</a>' % (url, created_at))
 
     if getattr(status, 'retweeted_status', None) is not None:
         t.append(', retweeted by <a href="%s">%s</a> at %s' % (
-                author_url, status.author.screen_name,
-                status.created_at.replace(tzinfo=pytz.utc).astimezone(timezone),
+                author_url, status.author.screen_name, created_at,
         ))
     t.append('</div>')
     t.append('</div>')
     t.append('\n\n')
 
-    year, week, day = status.created_at.isocalendar()
+    year, week, day = created_at.isocalendar()
 
     if year not in all_status:
         all_status[year] = {}
@@ -104,10 +104,10 @@ def process_status(status):
 
     all_status[year][week][status.id] = "".join(t)
 
-    lastweek = tofirstdayinisoweek(year, week)
+    lastweek = tofirstdayinisoweek(year, week).replace(tzinfo=timezone)
     nextweek = lastweek + datetime.timedelta(days=7)
 
-    if datetime.datetime.now() >= nextweek:
+    if now >= nextweek:
         return False
     else:
         return True
@@ -155,30 +155,25 @@ print "done:", retweeted_by_me_last_id
 
 for year in all_status:
     for week in all_status[year]:
-        lastweek = tofirstdayinisoweek(year, week)
+        lastweek = tofirstdayinisoweek(year, week).replace(tzinfo=timezone)
         nextweek = lastweek + datetime.timedelta(days=7)
-        now_utc = datetime.datetime.utcnow()
 
-        print nextweek, now_utc
-        if nextweek <= now_utc:
+        if nextweek <= now:
             modified = nextweek
         else:
-            modified = now_utc
-        print nextweek, now_utc, modified
+            modified = now
 
         tmpfile = "tempfile.mdwn"
         f = codecs.open(tmpfile, "w", "utf-8")
         title = "Twitter updates %s" % lastweek.date()
 
         f.write('[[!meta title="%s"]]\n' % title)
-        f.write('[[!meta date="%s"]]\n' % modified.strftime("%Y-%m-%dT%H:%M:%S GMT"))
+        f.write('[[!meta date="%s"]]\n' % modified.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%S GMT"))
         f.write("# %s\n" % title)
         f.write("\n")
 
         for this_id in sorted(all_status[year][week]):
             f.write(all_status[year][week][this_id])
-
-        now = datetime.date.today()
 
         f.write("\n")
         f.write("[[!tag %s]]\n" % "categories/tweets")
