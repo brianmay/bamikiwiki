@@ -167,7 +167,7 @@ def process_status(status):
 
     t = []
     t.append('<div class="tweet">')
-    t.append('<img src="%s" alt="" />' %
+    t.append('<img src="%s" alt="" class="avatar" />' %
         escape(author.profile_image_url, True))
     t.append('<div class="tweet_text">')
     t.append('%s @<a href="%s">%s</a><br/>' % (
