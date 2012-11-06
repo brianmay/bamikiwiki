@@ -122,7 +122,8 @@ else:
 
 print "\nuser_timeline", user_timeline_last_id
 
-for status in tweepy.Cursor(api.user_timeline, since_id=user_timeline_last_id).items():
+last_id = user_timeline_last_id
+for status in tweepy.Cursor(api.user_timeline, since_id=last_id).items():
     current_week = process_status(status)
     print current_week
     if not current_week:
@@ -141,7 +142,8 @@ else:
 
 print "\nretweeted_by_me", retweeted_by_me_last_id
 
-for status in tweepy.Cursor(api.retweeted_by_me, since_id=retweeted_by_me_last_id).items():
+last_id = retweeted_by_me_last_id
+for status in tweepy.Cursor(api.retweeted_by_me, since_id=last_id).items():
     current_week = process_status(status)
     print current_week
     if not current_week:
