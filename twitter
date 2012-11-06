@@ -8,6 +8,7 @@ import codecs
 import os
 import filecmp
 import pytz
+import gdbm
 
 config = ConfigParser.ConfigParser()
 config.read('config.cfg')
@@ -52,9 +53,13 @@ else:
 
 base = config.get('main', 'base')
 timezone = pytz.timezone(config.get('main', 'timezone'))
-now = datetime.datetime.utcnow().replace(tzinfo=pytz.utc).astimezone(timezone)
+now = pytz.utc.localize(datetime.datetime.utcnow())
+now = now.astimezone(timezone)
+now = timezone.normalize(now)
 
 all_status = {}
+
+db = gdbm.open("cache.db", "c")
 
 def tofirstdayinisoweek(year, week):
     ret = datetime.datetime.strptime('%04d-%02d-1' % (year, week), '%Y-%W-%w')
@@ -64,7 +69,6 @@ def tofirstdayinisoweek(year, week):
 
 def process_status(status):
     global lastweek, nextweek, all_status
-    print status.id, status.created_at, status.text
 
     if getattr(status, 'retweeted_status', None) is not None:
         tweet_status = status.retweeted_status
@@ -73,7 +77,11 @@ def process_status(status):
 
     author = tweet_status.author
     text = tweet_status.text
-    created_at = tweet_status.created_at.replace(tzinfo=pytz.utc).astimezone(timezone)
+    created_at = pytz.utc.localize(tweet_status.created_at)
+    created_at = created_at.astimezone(timezone)
+    created_at = timezone.normalize(created_at)
+
+    print status.id, created_at, text
 
     author_url = "https://twitter.com/%s" % (author.screen_name, )
     url = "https://twitter.com/%s/status/%s" % (author.screen_name, status.id_str)
@@ -102,16 +110,8 @@ def process_status(status):
     if week not in all_status[year]:
         all_status[year][week] = {}
 
-    all_status[year][week][status.id] = "".join(t)
-
-    lastweek = tofirstdayinisoweek(year, week).replace(tzinfo=timezone)
-    nextweek = lastweek + datetime.timedelta(days=7)
-
-    if now >= nextweek:
-        return False
-    else:
-        return True
-
+    db["%s_%s_%s_created"%(year, week, status.id)] = tweet_status.created_at.strftime("%Y-%m-%dT%H:%M:%S")
+    db["%s_%s_%s_text"%(year, week, status.id)] = "".join(t).encode("utf-8")
 
 # user_timeline
 
@@ -124,11 +124,9 @@ print "\nuser_timeline", user_timeline_last_id
 
 last_id = user_timeline_last_id
 for status in tweepy.Cursor(api.user_timeline, since_id=last_id).items():
-    current_week = process_status(status)
-    print current_week
-    if not current_week:
-        if user_timeline_last_id is None or user_timeline_last_id < status.id:
-            user_timeline_last_id = status.id
+    process_status(status)
+    if user_timeline_last_id is None or user_timeline_last_id < status.id:
+        user_timeline_last_id = status.id
 
 print "done:", user_timeline_last_id
 
@@ -145,35 +143,72 @@ print "\nretweeted_by_me", retweeted_by_me_last_id
 last_id = retweeted_by_me_last_id
 for status in tweepy.Cursor(api.retweeted_by_me, since_id=last_id).items():
     current_week = process_status(status)
-    print current_week
-    if not current_week:
-        if retweeted_by_me_last_id is None or retweeted_by_me_last_id < status.id:
-            retweeted_by_me_last_id = status.id
+    if retweeted_by_me_last_id is None or retweeted_by_me_last_id < status.id:
+        retweeted_by_me_last_id = status.id
 
 print "done:", retweeted_by_me_last_id
 
+print "\nreading cache"
+k = db.firstkey()
+while k != None:
+    year, week, tweet_id, key = k.split("_")
+    year = int(year)
+    week = int(week)
+    tweet_id = int(tweet_id)
 
+    if key != "text":
+        k = db.nextkey(k)
+        continue
+
+    created = db["%s_%s_%s_created"%(year, week, tweet_id)]
+    text = db["%s_%s_%s_text"%(year, week, tweet_id)]
+
+    created = datetime.datetime.strptime(created, "%Y-%m-%dT%H:%M:%S")
+
+#    if year not in all_status:
+#        all_status[year] = {}
+#
+#    if week not in all_status[year]:
+#        all_status[year][week] = {}
+
+    if year in all_status:
+        if week in all_status[year]:
+            print year, week, tweet_id, created
+            if created not in all_status[year][week]:
+                all_status[year][week][created] = []
+            all_status[year][week][created].append(db[k].decode("utf-8"))
+
+    k = db.nextkey(k)
+
+print "\nwriting output file"
 for year in all_status:
     for week in all_status[year]:
-        lastweek = tofirstdayinisoweek(year, week).replace(tzinfo=timezone)
+        lastweek = timezone.localize(tofirstdayinisoweek(year, week))
         nextweek = lastweek + datetime.timedelta(days=7)
+
+        print "processing week from %s to %s" % (lastweek, nextweek)
 
         if nextweek <= now:
             modified = nextweek
         else:
             modified = now
 
+        modified = modified.astimezone(pytz.utc)
+        modified = pytz.utc.normalize(modified)
+
         tmpfile = "tempfile.mdwn"
         f = codecs.open(tmpfile, "w", "utf-8")
         title = "Twitter updates %s" % lastweek.date()
 
         f.write('[[!meta title="%s"]]\n' % title)
-        f.write('[[!meta date="%s"]]\n' % modified.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%S GMT"))
+        f.write('[[!meta date="%s"]]\n' % modified.strftime("%Y-%m-%dT%H:%M:%S GMT"))
         f.write("# %s\n" % title)
         f.write("\n")
 
-        for this_id in sorted(all_status[year][week]):
-            f.write(all_status[year][week][this_id])
+        for created in sorted(all_status[year][week]):
+            text_list = all_status[year][week][created]
+            for text in text_list:
+                f.write(text)
 
         f.write("\n")
         f.write("[[!tag %s]]\n" % "categories/tweets")
@@ -182,7 +217,7 @@ for year in all_status:
         name = "%s/tweets_%s.mdwn" % (lastweek.strftime("%Y"), lastweek.strftime("%Y-%m-%d"))
         name = os.path.join(base, name)
 
-        print name
+        print "writing file %s" % name
         if os.path.exists(name) and filecmp.cmp(tmpfile, name, shallow=False):
             os.remove(tmpfile)
         else:
