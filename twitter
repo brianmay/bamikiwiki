@@ -116,7 +116,7 @@ def process_status(status):
 # user_timeline
 
 if state.has_option('twitter', 'user_timeline_last_id'):
-    user_timeline_last_id = state.get('twitter', 'user_timeline_last_id')
+    user_timeline_last_id = state.getint('twitter', 'user_timeline_last_id')
 else:
     user_timeline_last_id = None
 
@@ -135,7 +135,7 @@ print "done:", user_timeline_last_id
 # retweeted_by_me
 
 if state.has_option('twitter', 'retweeted_by_me_last_id'):
-    retweeted_by_me_last_id = state.get('twitter', 'retweeted_by_me_last_id')
+    retweeted_by_me_last_id = state.getint('twitter', 'retweeted_by_me_last_id')
 else:
     retweeted_by_me_last_id = None
 
