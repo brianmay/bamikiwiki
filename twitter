@@ -9,6 +9,9 @@ import os
 import filecmp
 import pytz
 import gdbm
+import urllib
+
+from cgi import escape
 
 config = ConfigParser.ConfigParser()
 config.read('config.cfg')
@@ -67,6 +70,77 @@ def tofirstdayinisoweek(year, week):
         ret -= timedelta(days=7)
     return ret
 
+def expand_entities(entities, text):
+    expanded = {}
+    end = []
+
+    if 'media' in entities:
+        for e in entities['media']:
+            a, b = e['indices']
+            url = e['expanded_url']
+            display = e['display_url']
+            expanded[a] = {
+                'text': '<a href="%s">%s</a>' % (
+                    escape(url, True), escape(display)),
+                'b': b
+            }
+        end.append('<img src="%s" alt="" />' % (
+                escape(e['media_url_https'])
+            ))
+    if 'urls' in entities:
+        for e in entities['urls']:
+            a, b = e['indices']
+            url = e['expanded_url']
+            display = e['display_url']
+            expanded[a] = {
+                'text': '<a href="%s">%s</a>' % (
+                    escape(url, True), escape(display)),
+                'b': b
+            }
+    if 'user_mentions' in entities:
+        for e in entities['user_mentions']:
+            a, b = e['indices']
+            user_url = "https://twitter.com/%s" % e['screen_name']
+            expanded[a] = {
+                'text': '@<a href="%s" title="%s">%s</a>' % (
+                    escape(user_url, True),
+                    escape(e['name'], True),
+                    escape(e['screen_name'])),
+                'b': b
+            }
+    if 'hashtags' in entities:
+        for e in entities['hashtags']:
+            a, b = e['indices']
+            query = { 'q': "#%s"%e['text'] }
+            hash_url = "https://twitter.com/search?%s" % urllib.urlencode(query)
+            expanded[a] = {
+                'text': '#<a href="%s">%s</a>' % (
+                    escape(hash_url, True),
+                    escape(e['text'])),
+                'b': b
+            }
+
+    print entities
+    print expanded
+    print end
+
+    result = []
+    i = 0
+    for a in sorted(expanded.keys()):
+        result.append(text[i:a])
+
+        t = expanded[a]['text']
+        b = expanded[a]['b']
+
+        result.append(t)
+
+        i = b
+
+    result.append(text[i:])
+    print "".join(result)
+
+    return "".join(result), "".join(end)
+
 def process_status(status):
     global lastweek, nextweek, all_status
 
@@ -83,21 +157,32 @@ def process_status(status):
 
     print status.id, created_at, text
 
+    text, end = expand_entities(tweet_status.entities, text)
+
+    print status.id, created_at, text
+    print "---------\n\n\n"
+
     author_url = "https://twitter.com/%s" % (author.screen_name, )
     url = "https://twitter.com/%s/status/%s" % (author.screen_name, status.id_str)
 
     t = []
     t.append('<div class="tweet">')
-    t.append('<img src="%s" alt="" />' % author.profile_image_url)
+    t.append('<img src="%s" alt="" />' %
+        escape(author.profile_image_url, True))
     t.append('<div class="tweet_text">')
-    t.append('%s <a href="%s">@%s</a><br/>' % (author.name, author_url, author.screen_name))
+    t.append('%s @<a href="%s">%s</a><br/>' % (
+        escape(author.name), escape(author_url, True), escape(author.screen_name)))
     t.append('%s<br/>' % text)
-    t.append('<a href="%s">%s</a>' % (url, created_at))
+    t.append('<a href="%s">%s</a>' % (
+        escape(url, True), escape(str(created_at))))
 
     if getattr(status, 'retweeted_status', None) is not None:
         t.append(', retweeted by <a href="%s">%s</a> at %s' % (
-                author_url, status.author.screen_name, created_at,
+            escape(author_url, True),
+            escape(status.author.screen_name),
+            escape(str(created_at)),
         ))
+    t.append(end)
     t.append('</div>')
     t.append('</div>')
     t.append('\n\n')
@@ -123,7 +208,7 @@ else:
 print "\nuser_timeline", user_timeline_last_id
 
 last_id = user_timeline_last_id
-for status in tweepy.Cursor(api.user_timeline, since_id=last_id).items():
+for status in tweepy.Cursor(api.user_timeline, since_id=last_id, include_entities=True).items():
     process_status(status)
     if user_timeline_last_id is None or user_timeline_last_id < status.id:
         user_timeline_last_id = status.id
@@ -141,7 +226,7 @@ else:
 print "\nretweeted_by_me", retweeted_by_me_last_id
 
 last_id = retweeted_by_me_last_id
-for status in tweepy.Cursor(api.retweeted_by_me, since_id=last_id).items():
+for status in tweepy.Cursor(api.retweeted_by_me, since_id=last_id, include_entities=True).items():
     current_week = process_status(status)
     if retweeted_by_me_last_id is None or retweeted_by_me_last_id < status.id:
         retweeted_by_me_last_id = status.id
