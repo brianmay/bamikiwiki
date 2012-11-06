@@ -157,13 +157,21 @@ for year in all_status:
     for week in all_status[year]:
         lastweek = tofirstdayinisoweek(year, week)
         nextweek = lastweek + datetime.timedelta(days=7)
+        now_utc = datetime.datetime.utcnow()
+
+        print nextweek, now_utc
+        if nextweek <= now_utc:
+            modified = nextweek
+        else:
+            modified = now_utc
+        print nextweek, now_utc, modified
 
         tmpfile = "tempfile.mdwn"
         f = codecs.open(tmpfile, "w", "utf-8")
         title = "Twitter updates %s" % lastweek.date()
 
         f.write('[[!meta title="%s"]]\n' % title)
-        f.write('[[!meta date="%s"]]\n' % nextweek.strftime("%Y-%m-%dT%H:%M:%S GMT"))
+        f.write('[[!meta date="%s"]]\n' % modified.strftime("%Y-%m-%dT%H:%M:%S GMT"))
         f.write("# %s\n" % title)
         f.write("\n")
 
