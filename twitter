@@ -275,8 +275,10 @@ for year in all_status:
 
         if nextweek <= now:
             modified = nextweek
+            week_complete = True
         else:
             modified = now
+            week_complete = False
 
         modified = modified.astimezone(pytz.utc)
         modified = pytz.utc.normalize(modified)
@@ -295,8 +297,10 @@ for year in all_status:
             for text in text_list:
                 f.write(text)
 
-        f.write("\n")
-        f.write("[[!tag %s]]\n" % "categories/tweets")
+        if week_complete:
+            f.write("\n")
+            f.write("[[!tag %s]]\n" % "categories/tweets")
+
         f.close()
 
         name = "%s/tweets_%s.mdwn" % (lastweek.strftime("%Y"), lastweek.strftime("%Y-%m-%d"))
