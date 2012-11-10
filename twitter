@@ -120,10 +120,6 @@ def expand_entities(entities, text):
                 'b': b
             }
 
-    print entities
-    print expanded
-    print end
-
     result = []
     i = 0
     for a in sorted(expanded.keys()):
@@ -155,11 +151,15 @@ def process_status(status):
     created_at = created_at.astimezone(timezone)
     created_at = timezone.normalize(created_at)
 
-    print status.id, created_at, text
+    retweet_at = pytz.utc.localize(status.created_at)
+    retweet_at = retweet_at.astimezone(timezone)
+    retweet_at = timezone.normalize(retweet_at)
+
+    print status.id, created_at, retweet_at, text
 
     text, end = expand_entities(tweet_status.entities, text)
 
-    print status.id, created_at, text
+    print status.id, created_at, retweet_at, text
     print "---------\n\n\n"
 
     author_url = "https://twitter.com/%s" % (author.screen_name, )
@@ -180,14 +180,14 @@ def process_status(status):
         t.append(', retweeted by <a href="%s">%s</a> at %s' % (
             escape(author_url, True),
             escape(status.author.screen_name),
-            escape(str(created_at)),
+            escape(str(retweet_at)),
         ))
     t.append(end)
     t.append('</div>')
     t.append('</div>')
     t.append('\n\n')
 
-    year, week, day = created_at.isocalendar()
+    year, week, day = retweet_at.isocalendar()
 
     if year not in all_status:
         all_status[year] = {}
