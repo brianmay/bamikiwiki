@@ -208,7 +208,7 @@ else:
 print "\nuser_timeline", user_timeline_last_id
 
 last_id = user_timeline_last_id
-for status in tweepy.Cursor(api.user_timeline, since_id=last_id, include_entities=True).items():
+for status in tweepy.Cursor(api.user_timeline, since_id=last_id, include_entities=True, count=200).items():
     process_status(status)
     if user_timeline_last_id is None or user_timeline_last_id < status.id:
         user_timeline_last_id = status.id
