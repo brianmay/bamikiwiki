@@ -68,12 +68,14 @@ def build_service(credentials, http, api_key=None):
   return service
 
 
-num = 0
+config = ConfigParser.ConfigParser()
+config.read('config.cfg')
 base = config.get('main', 'base')
 cat_base = os.path.join(base, "categories")
 dtitle = gdbm.open("id2title.db","c")
 dcategories = gdbm.open("id2categories.db","c")
 
+num = 0
 def process_item(item, comments, force):
       global num, base, cat_base, dtitle, dcategories
       print "\n-------"
