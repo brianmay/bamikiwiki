@@ -67,7 +67,7 @@ db = gdbm.open("cache.db", "c")
 def tofirstdayinisoweek(year, week):
     ret = datetime.datetime.strptime('%04d-%02d-1' % (year, week), '%Y-%W-%w')
     if datetime.date(year, 1, 4).isoweekday() > 4:
-        ret -= timedelta(days=7)
+        ret -= datetime.timedelta(days=7)
     return ret
 
 def expand_entities(entities, text):
